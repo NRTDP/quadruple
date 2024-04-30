@@ -1879,7 +1879,7 @@ namespace Quadruple
 
                 // we implicitly multiplied the stuff right of the decimal point by 10^(right.length) to get an integer;
                 // now we must reverse that and add this quantity to our results.
-                result += fractional * (Quad.Pow(new Quad(10L, 0), -right.Length));
+                result += fractional * (Quad.Pow(new Quad(10L, 0), -right.Length, out _)); // Since the exponent is negative, overflow should not happen.
             }
 
             return negative ? -result : result;
@@ -1965,10 +1965,13 @@ namespace Quadruple
         /// </summary>
         /// <param name="value"></param>
         /// <param name="exponent"></param>
+        /// <param name="causedOverflow">True if a calculation caused an overflow.  In this case an alternate calculation is done, which may result in loss of precision.</param>
         /// <returns></returns>
-        /// <remarks>Internally, Pow uses Math.Pow.  This effectively limits the precision of the output to a double's 53 bits.</remarks>
-        public static Quad Pow(Quad value, double exponent)
+        /// <remarks>Internally, Pow uses Math.Pow.  This effectively limits the precision of the output to a double's 53 bits. This also sometimes results in overflow, in which case an alternate calculation is used, which may result in loss of precision.</remarks>
+        public static Quad Pow(Quad value, double exponent, out bool causedOverflow)
         {
+            causedOverflow = false;
+
             if (value.Exponent <= notANumberExponent)
             {
                 //check NaN
@@ -2006,6 +2009,14 @@ namespace Quadruple
                 return NaN; //result is an imaginary number--negative value raised to non-integer exponent
 
             double resultSignificand = Math.Pow((double)new Quad(value.SignificandBits, -63), exponent);
+            
+            // In the case that the above calculation goes beyond double range, use a different calculation.
+            if (double.IsInfinity(resultSignificand) || double.IsNaN(resultSignificand))
+            {
+                causedOverflow = true;
+                return Pow(2, exponent * Log2(value), out _);
+            }
+            
             double resultExponent = (value.Exponent + 63) * exponent; //exponents multiply
 
             resultSignificand *= Math.Pow(2, resultExponent % 1); //push the fractional exponent into the significand
